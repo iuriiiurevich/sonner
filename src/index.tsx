@@ -1,9 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { forwardRef } from 'react';
 import ReactDOM from 'react-dom';
 
-import { getAsset, Loader } from './assets';
+import { CloseIcon, getAsset, Loader } from './assets';
 import { useIsDocumentHidden } from './hooks';
 import { toast, ToastState } from './state';
 import './styles.css';
@@ -77,8 +77,10 @@ const Toast = (props: ToastProps) => {
   const [removed, setRemoved] = React.useState(false);
   const [swiping, setSwiping] = React.useState(false);
   const [swipeOut, setSwipeOut] = React.useState(false);
+  const [isSwiped, setIsSwiped] = React.useState(false);
   const [offsetBeforeRemove, setOffsetBeforeRemove] = React.useState(0);
   const [initialHeight, setInitialHeight] = React.useState(0);
+  const remainingTime = React.useRef(toast.duration || durationFromToaster || TOAST_LIFETIME);
   const dragStartTime = React.useRef<Date | null>(null);
   const toastRef = React.useRef<HTMLLIElement>(null);
   const isFront = index === 0;
@@ -127,6 +129,17 @@ const Toast = (props: ToastProps) => {
     setMounted(true);
   }, []);
 
+  React.useEffect(() => {
+    const toastNode = toastRef.current;
+    if (toastNode) {
+      const height = toastNode.getBoundingClientRect().height;
+      // Add toast height to heights array after the toast is mounted
+      setInitialHeight(height);
+      setHeights((h) => [{ toastId: toast.id, height, position: toast.position }, ...h]);
+      return () => setHeights((h) => h.filter((height) => height.toastId !== toast.id));
+    }
+  }, [setHeights, toast.id]);
+
   React.useLayoutEffect(() => {
     if (!mounted) return;
     const toastNode = toastRef.current;
@@ -161,7 +174,6 @@ const Toast = (props: ToastProps) => {
   React.useEffect(() => {
     if ((toast.promise && toastType === 'loading') || toast.duration === Infinity || toast.type === 'loading') return;
     let timeoutId: NodeJS.Timeout;
-    let remainingTime = duration;
 
     // Pause the timer on each hover
     const pauseTimer = () => {
@@ -169,7 +181,7 @@ const Toast = (props: ToastProps) => {
         // Get the elapsed time since the timer started
         const elapsedTime = new Date().getTime() - closeTimerStartTimeRef.current;
 
-        remainingTime = remainingTime - elapsedTime;
+        remainingTime.current = remainingTime.current - elapsedTime;
       }
 
       lastCloseTimerStartTimeRef.current = new Date().getTime();
@@ -179,7 +191,7 @@ const Toast = (props: ToastProps) => {
       // setTimeout(, Infinity) behaves as if the delay is 0.
       // As a result, the toast would be closed immediately, giving the appearance that it was never rendered.
       // See: https://github.com/denysdovhan/wtfjs?tab=readme-ov-file#an-infinite-timeout
-      if (remainingTime === Infinity) return;
+      if (remainingTime.current === Infinity) return;
 
       closeTimerStartTimeRef.current = new Date().getTime();
 
@@ -187,7 +199,7 @@ const Toast = (props: ToastProps) => {
       timeoutId = setTimeout(() => {
         toast.onAutoClose?.(toast);
         deleteToast();
-      }, remainingTime);
+      }, remainingTime.current);
     };
 
     if (expanded || interacting || (pauseWhenPageIsHidden && isDocumentHidden)) {
@@ -197,32 +209,7 @@ const Toast = (props: ToastProps) => {
     }
 
     return () => clearTimeout(timeoutId);
-  }, [
-    expanded,
-    interacting,
-    expandByDefault,
-    toast,
-    duration,
-    deleteToast,
-    toast.promise,
-    toastType,
-    pauseWhenPageIsHidden,
-    isDocumentHidden,
-  ]);
-
-  React.useEffect(() => {
-    const toastNode = toastRef.current;
-
-    if (toastNode) {
-      const height = toastNode.getBoundingClientRect().height;
-
-      // Add toast height tot heights array after the toast is mounted
-      setInitialHeight(height);
-      setHeights((h) => [{ toastId: toast.id, height, position: toast.position }, ...h]);
-
-      return () => setHeights((h) => h.filter((height) => height.toastId !== toast.id));
-    }
-  }, [setHeights, toast.id]);
+  }, [expanded, interacting, toast, toastType, pauseWhenPageIsHidden, isDocumentHidden, deleteToast]);
 
   React.useEffect(() => {
     if (toast.delete) {
@@ -233,7 +220,10 @@ const Toast = (props: ToastProps) => {
   function getLoadingIcon() {
     if (icons?.loading) {
       return (
-        <div className="sonner-loader" data-visible={toastType === 'loading'}>
+        <div
+          className={cn(classNames?.loader, toast?.classNames?.loader, 'sonner-loader')}
+          data-visible={toastType === 'loading'}
+        >
           {icons.loading}
         </div>
       );
@@ -241,19 +231,19 @@ const Toast = (props: ToastProps) => {
 
     if (loadingIconProp) {
       return (
-        <div className="sonner-loader" data-visible={toastType === 'loading'}>
+        <div
+          className={cn(classNames?.loader, toast?.classNames?.loader, 'sonner-loader')}
+          data-visible={toastType === 'loading'}
+        >
           {loadingIconProp}
         </div>
       );
     }
-    return <Loader visible={toastType === 'loading'} />;
+    return <Loader className={cn(classNames?.loader, toast?.classNames?.loader)} visible={toastType === 'loading'} />;
   }
 
   return (
     <li
-      aria-live={toast.important ? 'assertive' : 'polite'}
-      aria-atomic="true"
-      role="status"
       tabIndex={0}
       ref={toastRef}
       className={cn(
@@ -270,6 +260,7 @@ const Toast = (props: ToastProps) => {
       data-styled={!Boolean(toast.jsx || toast.unstyled || unstyled)}
       data-mounted={mounted}
       data-promise={Boolean(toast.promise)}
+      data-swiped={isSwiped}
       data-removed={removed}
       data-visible={isVisible}
       data-y-position={y}
@@ -317,6 +308,7 @@ const Toast = (props: ToastProps) => {
           toast.onDismiss?.(toast);
           deleteToast();
           setSwipeOut(true);
+          setIsSwiped(false);
           return;
         }
 
@@ -327,20 +319,16 @@ const Toast = (props: ToastProps) => {
         if (!pointerStartRef.current || !dismissible) return;
 
         const yPosition = event.clientY - pointerStartRef.current.y;
-        const xPosition = event.clientX - pointerStartRef.current.x;
+        const isHighlighted = window.getSelection()?.toString().length > 0;
+        const swipeAmount = y === 'top' ? Math.min(0, yPosition) : Math.max(0, yPosition);
 
-        const clamp = y === 'top' ? Math.min : Math.max;
-        const clampedY = clamp(0, yPosition);
-        const swipeStartThreshold = event.pointerType === 'touch' ? 10 : 2;
-        const isAllowedToSwipe = Math.abs(clampedY) > swipeStartThreshold;
-
-        if (isAllowedToSwipe) {
-          toastRef.current?.style.setProperty('--swipe-amount', `${yPosition}px`);
-        } else if (Math.abs(xPosition) > swipeStartThreshold) {
-          // User is swiping in wrong direction so we disable swipe gesture
-          // for the current pointer down interaction
-          pointerStartRef.current = null;
+        if (Math.abs(swipeAmount) > 0) {
+          setIsSwiped(true);
         }
+
+        if (isHighlighted) return;
+
+        toastRef.current?.style.setProperty('--swipe-amount', `${swipeAmount}px`);
       }}
     >
       {closeButton && !toast.jsx ? (
@@ -358,24 +346,18 @@ const Toast = (props: ToastProps) => {
           }
           className={cn(classNames?.closeButton, toast?.classNames?.closeButton)}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
+          {icons?.close ?? CloseIcon}
         </button>
       ) : null}
+      {/* TODO: This can be cleaner */}
       {toast.jsx || React.isValidElement(toast.title) ? (
-        toast.jsx || toast.title
+        toast.jsx ? (
+          toast.jsx
+        ) : typeof toast.title === 'function' ? (
+          toast.title()
+        ) : (
+          toast.title
+        )
       ) : (
         <>
           {toastType || toast.icon || toast.promise ? (
@@ -387,7 +369,7 @@ const Toast = (props: ToastProps) => {
 
           <div data-content="" className={cn(classNames?.content, toast?.classNames?.content)}>
             <div data-title="" className={cn(classNames?.title, toast?.classNames?.title)}>
-              {toast.title}
+              {typeof toast.title === 'function' ? toast.title() : toast.title}
             </div>
             {toast.description ? (
               <div
@@ -399,7 +381,7 @@ const Toast = (props: ToastProps) => {
                   toast?.classNames?.description,
                 )}
               >
-                {toast.description}
+                {typeof toast.description === 'function' ? toast.description() : toast.description}
               </div>
             ) : null}
           </div>
@@ -487,7 +469,7 @@ function useSonner() {
   };
 }
 
-const Toaster = (props: ToasterProps) => {
+const Toaster = forwardRef<HTMLElement, ToasterProps>(function Toaster(props, ref) {
   const {
     invert,
     position = 'bottom-right',
@@ -591,14 +573,31 @@ const Toaster = (props: ToasterProps) => {
     }
 
     if (typeof window === 'undefined') return;
+    const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ({ matches }) => {
-      if (matches) {
-        setActualTheme('dark');
-      } else {
-        setActualTheme('light');
-      }
-    });
+    try {
+      // Chrome & Firefox
+      darkMediaQuery.addEventListener('change', ({ matches }) => {
+        if (matches) {
+          setActualTheme('dark');
+        } else {
+          setActualTheme('light');
+        }
+      });
+    } catch (error) {
+      // Safari < 14
+      darkMediaQuery.addListener(({ matches }) => {
+        try {
+          if (matches) {
+            setActualTheme('dark');
+          } else {
+            setActualTheme('light');
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      });
+    }
   }, [theme]);
 
   React.useEffect(() => {
@@ -641,13 +640,20 @@ const Toaster = (props: ToasterProps) => {
     }
   }, [listRef.current]);
 
-  if (!toasts.length) return null;
-
   return (
     // Remove item from normal navigation flow, only available via hotkey
-    <section aria-label={`${containerAriaLabel} ${hotkeyLabel}`} tabIndex={-1}>
+    <section
+      aria-label={`${containerAriaLabel} ${hotkeyLabel}`}
+      tabIndex={-1}
+      aria-live="polite"
+      aria-relevant="additions text"
+      aria-atomic="false"
+    >
       {possiblePositions.map((position, index) => {
         const [y, x] = position.split('-');
+
+        if (!toasts.length) return null;
+
         return (
           <ol
             key={position}
@@ -658,6 +664,7 @@ const Toaster = (props: ToasterProps) => {
             data-sonner-toaster
             data-theme={actualTheme}
             data-y-position={y}
+            data-lifted={expanded && toasts.length > 1 && !expand}
             data-x-position={x}
             style={
               {
@@ -744,6 +751,6 @@ const Toaster = (props: ToasterProps) => {
       })}
     </section>
   );
-};
+});
 export { toast, Toaster, type ExternalToast, type ToastT, type ToasterProps, useSonner };
 export { type ToastClassnames, type ToastToDismiss, type Action } from './types';
