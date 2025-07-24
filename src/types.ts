@@ -78,6 +78,7 @@ export interface ToastT {
   classNames?: ToastClassnames;
   descriptionClassName?: string;
   position?: Position;
+  onClick?: () => void;
 }
 
 export function isAction(action: Action | React.ReactNode): action is Action {
@@ -167,6 +168,7 @@ export interface ToastProps {
   pauseWhenPageIsHidden: boolean;
   cn: CnFunction;
   defaultRichColors?: boolean;
+  onClick?: () => void;
 }
 
 export enum SwipeStateTypes {

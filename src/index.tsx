@@ -73,6 +73,7 @@ const Toast = (props: ToastProps) => {
     closeButtonAriaLabel = 'Close toast',
     pauseWhenPageIsHidden,
     cn,
+    onClick,
   } = props;
   const [mounted, setMounted] = React.useState(false);
   const [removed, setRemoved] = React.useState(false);
@@ -332,7 +333,9 @@ const Toast = (props: ToastProps) => {
         toastRef.current?.style.setProperty('--swipe-amount', `${swipeAmount}px`);
       }}
       onClick={
-        !dismissibleByClick || disabled || !dismissible || !(toasts.length === 1 || expanded)
+        onClick
+          ? onClick
+          : !dismissibleByClick || disabled || !dismissible || !(toasts.length === 1 || expanded)
           ? () => {}
           : () => {
               deleteToast();
