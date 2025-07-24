@@ -168,7 +168,6 @@ export interface ToastProps {
   pauseWhenPageIsHidden: boolean;
   cn: CnFunction;
   defaultRichColors?: boolean;
-  onClick?: () => void;
 }
 
 export enum SwipeStateTypes {
